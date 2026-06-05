@@ -19,25 +19,23 @@ if st.button("Gerar Relatório da Soul Branding"):
         st.warning("Por favor, insira a chave da API do Gemini acima.")
     elif uploaded_file is not None:
         try:
-            # 1. MODO DETETIVE: Descobrir os modelos permitidos para a sua chave
+            # 1. MODO DETETIVE: Descobrir os modelos permitidos
             st.info("🔍 A verificar os acessos da sua chave no Google...")
             url_models = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
             resp_models = requests.get(url_models)
             
             if resp_models.status_code != 200:
-                st.error("Erro ao validar a chave da API. Tem a certeza que a chave está correta e não tem espaços em branco?")
+                st.error("Erro ao validar a chave da API. Verifique se não há espaços em branco.")
                 st.stop()
                 
-            # Filtrar apenas os modelos que conseguem gerar texto
             modelos_disponiveis = [m['name'] for m in resp_models.json().get('models', []) if 'generateContent' in m.get('supportedGenerationMethods', [])]
             
             if not modelos_disponiveis:
-                st.error("A sua chave não tem permissão para usar nenhum modelo de texto do Gemini. Tente criar a chave com uma conta Google pessoal normal (@gmail.com).")
+                st.error("A sua chave não tem permissão para usar nenhum modelo de texto do Gemini.")
                 st.stop()
 
-            # Escolher o modelo mais avançado que estiver disponível na lista
-            modelo_escolhido = modelos_disponiveis[0] # Pega o primeiro como garantia
-            preferencias = ['models/gemini-1.5-flash', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-pro', 'models/gemini-pro', 'models/gemini-1.0-pro']
+            modelo_escolhido = modelos_disponiveis[0]
+            preferencias = ['models/gemini-2.5-flash', 'models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']
             
             for pref in preferencias:
                 if pref in modelos_disponiveis:
@@ -46,8 +44,20 @@ if st.button("Gerar Relatório da Soul Branding"):
                     
             st.success(f"✅ Permissão garantida! O Google autorizou o uso do modelo: {modelo_escolhido}")
 
-            # 2. LER O FICHEIRO E GERAR O RELATÓRIO
-            file_contents = uploaded_file.read().decode("utf-8")
+            # 2. LIMPEZA DO TRELLO (O Segredo para não estourar a quota grátis!)
+            file_contents_raw = uploaded_file.read().decode("utf-8")
+            
+            try:
+                trello_data = json.loads(file_contents_raw)
+                # Remover o histórico de ações e plugins que não interessam e ocupam 90% do ficheiro
+                if 'actions' in trello_data:
+                    del trello_data['actions']
+                if 'pluginData' in trello_data:
+                    del trello_data['pluginData']
+                # Converter de volta para texto (agora muito mais leve!)
+                file_contents = json.dumps(trello_data)
+            except:
+                file_contents = file_contents_raw # Se falhar, tenta com o ficheiro original
 
             # Instrução (Prompt)
             prompt = f"""
@@ -58,13 +68,13 @@ if st.button("Gerar Relatório da Soul Branding"):
             2. Roteiro atualizado de cada pessoa do time.
             3. Lista de alertas com cards vencidos, sem status ou sem responsável para a reunião.
 
-            Aqui estão os dados do Trello de hoje:
+            Aqui estão os dados limpos do Trello de hoje:
             {file_contents}
             """
 
-            with st.spinner('A analisar milhares de cards e a gerar o relatório... (Isto pode demorar até 1 minuto)'):
+            with st.spinner('A analisar os cards da agência e a gerar o relatório... (Isto pode demorar até 1 minuto)'):
                 
-                # Montar a ligação final com o modelo exato que o Google mandou usar
+                # Enviar para o Google
                 modelo_url = modelo_escolhido.replace('models/', '')
                 url_gen = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo_url}:generateContent?key={api_key}"
                 headers = {'Content-Type': 'application/json'}
@@ -72,7 +82,6 @@ if st.button("Gerar Relatório da Soul Branding"):
                     "contents": [{"parts": [{"text": prompt}]}]
                 }
                 
-                # Enviar para o Google
                 response = requests.post(url_gen, headers=headers, json=data)
                 response_json = response.json()
                 
@@ -83,7 +92,7 @@ if st.button("Gerar Relatório da Soul Branding"):
                     st.markdown(resposta_texto)
                 else:
                     erro_msg = response_json.get('error', {}).get('message', 'Erro desconhecido')
-                    st.error(f"Erro durante a geração do texto: {erro_msg}")
+                    st.error(f"Erro de Quota ou Limite no Google: {erro_msg}")
                 
         except Exception as e:
             st.error(f"Ocorreu um erro interno no site: {e}")
