@@ -1,5 +1,5 @@
 import streamlit as st
-import google.generativeai as genai
+import requests
 import json
 
 # Configuração visual do site
@@ -19,9 +19,6 @@ if st.button("Gerar Relatório da Soul Branding"):
         st.warning("Por favor, insira a chave da API do Gemini acima.")
     elif uploaded_file is not None:
         try:
-            # Configurar a Inteligência Artificial
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
             # Ler o ficheiro do Trello
             file_contents = uploaded_file.read().decode("utf-8")
 
@@ -39,11 +36,28 @@ if st.button("Gerar Relatório da Soul Branding"):
             """
 
             with st.spinner('A analisar milhares de cards e a gerar o relatório... (Isto pode demorar cerca de 20 a 40 segundos)'):
-                response = model.generate_content(prompt)
-                st.markdown("### 📋 O Seu Relatório está Pronto:")
-                st.markdown(response.text)
+                
+                # CONEXÃO DIRETA À PROVA DE ERROS (Bypass da biblioteca)
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+                headers = {'Content-Type': 'application/json'}
+                data = {
+                    "contents": [{"parts": [{"text": prompt}]}]
+                }
+                
+                # Enviar para o Google
+                response = requests.post(url, headers=headers, json=data)
+                response_json = response.json()
+                
+                # Mostrar o resultado
+                if response.status_code == 200:
+                    resposta_texto = response_json['candidates'][0]['content']['parts'][0]['text']
+                    st.markdown("### 📋 O Seu Relatório está Pronto:")
+                    st.markdown(resposta_texto)
+                else:
+                    erro_msg = response_json.get('error', {}).get('message', 'Erro desconhecido')
+                    st.error(f"Erro no servidor do Google: {erro_msg}")
                 
         except Exception as e:
-            st.error(f"Ocorreu um erro ao processar: {e}")
+            st.error(f"Ocorreu um erro no site: {e}")
     else:
         st.warning("Por favor, faça primeiro o upload do ficheiro JSON.")
