@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import json
+from datetime import datetime
 
 # Configuração visual do site
 st.set_page_config(page_title="Soul Branding - Gerador de Pautas", page_icon="⚡")
@@ -31,7 +32,6 @@ if st.button("Gerar Relatório da Soul Branding"):
             modelos_disponiveis = [m['name'] for m in resp_models.json().get('models', []) if 'generateContent' in m.get('supportedGenerationMethods', [])]
             modelo_escolhido = modelos_disponiveis[0]
             
-            # Tenta pegar o melhor modelo disponível
             for pref in ['models/gemini-2.5-flash', 'models/gemini-1.5-flash', 'models/gemini-1.5-pro']:
                 if pref in modelos_disponiveis:
                     modelo_escolhido = pref
@@ -39,53 +39,67 @@ if st.button("Gerar Relatório da Soul Branding"):
                     
             st.success(f"✅ Conectado ao Google! Modelo: {modelo_escolhido}")
 
-            # 2. LIMPEZA EXTREMA DO TRELLO (Reduz o ficheiro em 99%)
+            # 2. LIMPEZA EXTREMA E FILTRO DE COLUNAS
             file_contents_raw = uploaded_file.read().decode("utf-8")
             
             try:
                 trello_data = json.loads(file_contents_raw)
                 
-                # Extrair apenas o que é essencial para a Pauta
-                listas = [{"id": l["id"], "nome": l["name"]} for l in trello_data.get("lists", []) if not l.get("closed", False)]
-                membros = [{"id": m["id"], "nome": m.get("fullName", "Desconhecido")} for m in trello_data.get("members", [])]
+                # Filtrar as listas: IGNORAR Backlog e Concluídos
+                listas_validas = {}
+                for l in trello_data.get("lists", []):
+                    nome_lista = l.get("name", "").lower()
+                    if not l.get("closed", False) and "backlog" not in nome_lista and "concluído" not in nome_lista and "concluido" not in nome_lista:
+                        listas_validas[l["id"]] = l["name"]
+
+                membros = {m["id"]: m.get("fullName", "Desconhecido") for m in trello_data.get("members", [])}
                 
                 cards = []
                 for c in trello_data.get("cards", []):
-                    if not c.get("closed", False):
+                    if not c.get("closed", False) and c.get("idList") in listas_validas:
+                        nomes_responsaveis = [membros.get(m_id, "Desconhecido") for m_id in c.get("idMembers", [])]
+                        
                         cards.append({
                             "nome_card": c.get("name"),
                             "prazo": c.get("due"),
-                            "id_lista": c.get("idList"),
-                            "id_responsaveis": c.get("idMembers"),
+                            "coluna_atual": listas_validas[c.get("idList")],
+                            "responsaveis": nomes_responsaveis,
                             "etiquetas": [lbl.get("name") for lbl in c.get("labels", []) if lbl.get("name")]
                         })
                         
-                # Monta um novo ficheiro minúsculo
                 trello_resumido = {
-                    "listas_do_quadro": listas,
-                    "membros_da_equipa": membros,
-                    "cards_ativos": cards
+                    "cards_em_andamento": cards
                 }
                 file_contents = json.dumps(trello_resumido, ensure_ascii=False)
                 
             except Exception as e:
-                st.warning("Não foi possível fazer a limpeza extrema, a tentar enviar o ficheiro original...")
+                st.warning("Não foi possível filtrar o JSON perfeitamente, a tentar com o ficheiro original...")
                 file_contents = file_contents_raw
 
-            # 3. PEDIDO À INTELIGÊNCIA ARTIFICIAL
+            # 3. PEDIDO À INTELIGÊNCIA ARTIFICIAL COM REGRA ESTRITA DE ALERTAS
+            data_hoje = datetime.now().strftime("%d/%m/%Y")
+            
             prompt = f"""
-            Atuas como o assistente de operações da agência Soul Branding. 
-            Com base no conhecimento sobre a estrutura de clientes, equipa (Mateus, Zilli, Taís, Henrique, Bruno, Vitória, Luan, Arthur) 
-            e nos dados extraídos do Trello de hoje fornecido abaixo, por favor gera com precisão:
-            1. Calendário visual do mês atual com as demandas posicionadas pelo prazo.
-            2. Roteiro atualizado de cada pessoa do time.
-            3. Lista de alertas com cards vencidos, sem status ou sem responsável para a reunião.
+            Hoje é dia {data_hoje}. Atuas como o assistente de operações da agência Soul Branding. 
+            Com base no conhecimento do manual da agência (equipa, reuniões, responsabilidades por cliente, fluxo do Trello) 
+            e nos dados extraídos dos cards do Trello fornecidos abaixo, por favor gera com precisão:
 
-            Aqui estão os DADOS RESUMIDOS do Trello de hoje:
+            1. Calendário visual para o mês atual ({data_hoje}): 
+               - Posiciona as demandas em aberto pelo prazo de entrega.
+               - Inclui os lembretes das recorrências mensais de cada pessoa do time.
+            2. Roteiro atualizado da equipa: 
+               - Agrupa por pessoa (Mateus, Zilli, Taís, Henrique, Bruno, Vitória, Luan, Arthur).
+               - O que eles têm a fazer hoje e nos próximos dias com base nos prazos.
+            3. Lista de alertas para a reunião de pauta: 
+               - REGRA ESTRITA: Analisar EXCLUSIVAMENTE os cards que estão nas colunas individuais de cada pessoa do time OU na coluna de "Revisão". Não incluir alertas de outras colunas.
+               - Destacar cards com prazo vencido nestas colunas (comparando com {data_hoje}).
+               - Destacar cards que estão sem status, sem responsável ou travados nestas colunas específicas.
+
+            Aqui estão os DADOS RESUMIDOS E FILTRADOS do Trello:
             {file_contents}
             """
 
-            with st.spinner('A processar e formatar o seu relatório da Soul Branding...'):
+            with st.spinner('A estruturar o calendário e roteiros do time...'):
                 
                 modelo_url = modelo_escolhido.replace('models/', '')
                 url_gen = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo_url}:generateContent?key={api_key}"
