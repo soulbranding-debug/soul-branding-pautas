@@ -21,8 +21,7 @@ if st.button("Gerar Relatório da Soul Branding"):
         try:
             # Configurar a Inteligência Artificial
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-pro')
-
+            model = genai.GenerativeModel('gemini-1.5-flash')
             # Ler o ficheiro do Trello
             file_contents = uploaded_file.read().decode("utf-8")
 
